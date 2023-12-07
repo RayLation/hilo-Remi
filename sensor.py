@@ -632,14 +632,9 @@ class HiloChallengeSensor(HiloEntity, RestoreEntity, SensorEntity):
         self._next_events = []
         self._events_count = 0
         
-        #self.scan_interval = timedelta(seconds=CONF_SCAN_INTERVAL)
-        self.scan_interval = hilo.scan_interval
+        self.scan_interval = timedelta(seconds=EVENT_SCAN_INTERVAL)        
         self._last_poll = datetime.min   
         self.async_update = self._async_update
-
-        # test en cours pour refresher plus souvent le state...
-        # async_track_time_interval(self.hass, _async_update, timedelta(seconds = 5))
-     
 
     @property
     def state(self):
@@ -684,15 +679,19 @@ class HiloChallengeSensor(HiloEntity, RestoreEntity, SensorEntity):
             self._last_poll = datetime.min
 
     async def _async_update(self):    
+    # This functions updates the state of the sensor at every scan (configured in hass, default to 30s)
+    # To prevent polling hilo too often, we will throttle ourselves based on EVENT_SCAN_INTERVAL (which has to be >3000s per Hilo's directive )
     
-        LOG.debug("Let's update our state!")
+        
 
-        #THROTTLING: We only want to pool data based on CONF_SCAN_INTERVAL, which has to be >60s per Hilo's directive.
-        if (datetime.now() > self._last_poll + timedelta(seconds = self.scan_interval)) : 
-            LOG.debug("OH, but first, let's poll data from Hilo this time!")
+        #Hilo polling THROTTLING happens here: 
+        if (datetime.now() > self._last_poll + self.scan_interval) : 
+            LOG.debug(f"It's been {self.scan_interval}. Let's poll last events info from Hilo")
             await self._poll_data_from_hilo()
             self._last_poll = datetime.now()
         
+        # but we can update the recalculate/update the state as often as we like!        
+        LOG.debug("Let's recalculate the Challenge Sensor state")
         if self._events_count > 0:       
             if datetime.now(timezone.utc) >= self.recovery_end: 
                 #le défi en cours est fini...
