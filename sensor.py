@@ -26,6 +26,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import Throttle, slugify
 import homeassistant.util.dt as dt_util
+from homeassistant.helpers.event import async_track_time_interval
 from pyhilo.device import HiloDevice
 from pyhilo.event import Event
 from pyhilo.util import from_utc_timestamp
@@ -610,7 +611,7 @@ class HiloChallengeSensor(HiloEntity, RestoreEntity, SensorEntity):
     - pre_cold: Currently in pre_cold phase, another special phase provided by this integration in order to boost rewards
     """
 
-    events_count: int
+    _events_count: int
     preheat_start: datetime
     preheat_end: datetime
     reduction_start: datetime
@@ -626,39 +627,23 @@ class HiloChallengeSensor(HiloEntity, RestoreEntity, SensorEntity):
         self._attr_name = "Defi Hilo"
         super().__init__(hilo, name=self._attr_name, device=device)
         self._attr_unique_id = slugify(self._attr_name)
-        LOG.debug(f"Setting up ChallengeSensor entity: {self._attr_name}")
-        self.scan_interval = timedelta(seconds=EVENT_SCAN_INTERVAL)
+        LOG.debug(f"Setting up ChallengeSensor entity: {self._attr_name}")        
         self._state = "off"
         self._next_events = []
-        self.events_count = 0
-        self._async_update(self)
-        self.async_update = Throttle(self.scan_interval)(self._async_update)
+        self._events_count = 0
+        
+        #self.scan_interval = timedelta(seconds=CONF_SCAN_INTERVAL)
+        self.scan_interval = hilo.scan_interval
+        self._last_poll = datetime.min   
+        self.async_update = self._async_update
+
+        # test en cours pour refresher plus souvent le state...
+        # async_track_time_interval(self.hass, _async_update, timedelta(seconds = 5))
+     
 
     @property
     def state(self):
-        
-        if self.events_count > 0:            
-            if datetime.now(timezone.utc) >= self.recovery_end: 
-                #le défi en cours est fini...
-                if self.events_count > 1:
-                    #... mais il y en a un autre après!
-                    return "scheduled"
-                else:
-                    return "off"
-            elif datetime.now(timezone.utc) >= self.recovery_start:
-                return "recovery"
-            elif datetime.now(timezone.utc) >= self.reduction_start:
-                return "reduction"
-            elif datetime.now(timezone.utc) >= self.preheat_start:
-                return "pre_heat"
-            elif datetime.now(timezone.utc) >= self.appreciation_start:
-                return "appreciation"
-            elif datetime.now(timezone.utc) >= self.precold_start:
-                return "pre_cold"
-            else:
-                return "scheduled"
-        else:
-            return "off" 
+        return self._state
 
     @property
     def icon(self):
@@ -696,14 +681,48 @@ class HiloChallengeSensor(HiloEntity, RestoreEntity, SensorEntity):
             self._last_update = dt_util.utcnow()
             self._state = last_state.state
             self._next_events = last_state.attributes.get("next_events", [])
+            self._last_poll = datetime.min
 
-    async def _async_update(self):
+    async def _async_update(self):    
+    
+        LOG.debug("Let's update our state!")
+
+        #THROTTLING: We only want to pool data based on CONF_SCAN_INTERVAL, which has to be >60s per Hilo's directive.
+        if (datetime.now() > self._last_poll + timedelta(seconds = self.scan_interval)) : 
+            LOG.debug("OH, but first, let's poll data from Hilo this time!")
+            await self._poll_data_from_hilo()
+            self._last_poll = datetime.now()
+        
+        if self._events_count > 0:       
+            if datetime.now(timezone.utc) >= self.recovery_end: 
+                #le défi en cours est fini...
+                if self._events_count > 1:
+                    #... mais il y en a un autre après!
+                    self._state = "scheduled"
+                else:
+                    self._state = "off"
+            elif datetime.now(timezone.utc) >= self.recovery_start:
+                self._state = "recovery"
+            elif datetime.now(timezone.utc) >= self.reduction_start:
+                self._state = "reduction"
+            elif datetime.now(timezone.utc) >= self.preheat_start:
+                self._state = "pre_heat"
+            elif datetime.now(timezone.utc) >= self.appreciation_start:
+                self._state = "appreciation"
+            elif datetime.now(timezone.utc) >= self.precold_start:
+                self._state = "pre_cold"
+            else:
+                self._state = "scheduled"
+        else:
+            self._state = "off" 
+    
+    async def _poll_data_from_hilo(self):
         
         events = await self._hilo._api.get_gd_events(self._hilo.devices.location_id)
         LOG.debug(f"Events received from Hilo: {events}")
 
         new_events = []        
-        self.events_count = 0
+        self._events_count = 0
         
         for raw_event in events:
             details = await self._hilo._api.get_gd_events(
@@ -713,7 +732,7 @@ class HiloChallengeSensor(HiloEntity, RestoreEntity, SensorEntity):
             event = Event(**details)
             
             # We set class attributes only for first (current) event, if any
-            if (self.events_count == 0): 
+            if (self._events_count == 0): 
                 # straight from pyhilo
                 self.preheat_start = event.preheat_start
                 self.preheat_end = event.preheat_end
@@ -731,13 +750,13 @@ class HiloChallengeSensor(HiloEntity, RestoreEntity, SensorEntity):
             # to provide string for entity attributes
             new_events.append(event.as_dict())
 
-            self.events_count = self.events_count + 1
+            self._events_count = self._events_count + 1
         
         # if at least 1 event is scheduled, we keep the string for entity attributes
         # this string does not currently include the special phases like appreciation and pre_cold
-        if (self.events_count):
-            self._next_events = new_events            
-            
+        self._next_events = []
+        if (self._events_count):
+            self._next_events = new_events
 
 class DeviceSensor(HiloEntity, SensorEntity):
     """Devices like the gateway or Smoke Detectors don't have much attributes,
