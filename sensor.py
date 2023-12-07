@@ -631,16 +631,20 @@ class HiloChallengeSensor(HiloEntity, RestoreEntity, SensorEntity):
         self._state = "off"
         self._next_events = []
         self.events_count = 0
+        self._async_update(self)
         self.async_update = Throttle(self.scan_interval)(self._async_update)
 
     @property
     def state(self):
         
-        if self.events_count > 0:
-            if self.events_count > 1:
-                return "scheduled"
-            elif datetime.now(timezone.utc) >= self.recovery_end: 
-                return "off"
+        if self.events_count > 0:            
+            if datetime.now(timezone.utc) >= self.recovery_end: 
+                #le défi en cours est fini...
+                if self.events_count > 1:
+                    #... mais il y en a un autre après!
+                    return "scheduled"
+                else:
+                    return "off"
             elif datetime.now(timezone.utc) >= self.recovery_start:
                 return "recovery"
             elif datetime.now(timezone.utc) >= self.reduction_start:
@@ -721,7 +725,7 @@ class HiloChallengeSensor(HiloEntity, RestoreEntity, SensorEntity):
                 # Special attributes            
                 self.appreciation_start = event.preheat_start - timedelta(hours = self._hilo.appreciation)                
                 self.appreciation_end = self.preheat_start
-                self.precold_start: event.preheat_start - timedelta(hours = self._hilo.appreciation) - timedelta(hours = self._hilo.precold)                
+                self.precold_start =  event.preheat_start - timedelta(hours = self._hilo.appreciation) - timedelta(hours = self._hilo.precold)                
                 self.precold_end = self.appreciation_start
             
             # to provide string for entity attributes
