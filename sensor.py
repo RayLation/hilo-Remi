@@ -639,17 +639,17 @@ class HiloChallengeSensor(HiloEntity, RestoreEntity, SensorEntity):
         if self.events_count > 0:
             if self.events_count > 1:
                 return "scheduled"
-            elif datetime.now(timezone.utc) > self.recovery_end: 
+            elif datetime.now(timezone.utc) >= self.recovery_end: 
                 return "off"
-            elif datetime.now(timezone.utc) > self.recovery_start:
+            elif datetime.now(timezone.utc) >= self.recovery_start:
                 return "recovery"
-            elif datetime.now(timezone.utc) > self.reduction_start:
+            elif datetime.now(timezone.utc) >= self.reduction_start:
                 return "reduction"
-            elif datetime.now(timezone.utc) > self.preheat_start:
+            elif datetime.now(timezone.utc) >= self.preheat_start:
                 return "pre_heat"
-            elif datetime.now(timezone.utc) > self.appreciation_start:
+            elif datetime.now(timezone.utc) >= self.appreciation_start:
                 return "appreciation"
-            elif datetime.now(timezone.utc) > self.precold_start:
+            elif datetime.now(timezone.utc) >= self.precold_start:
                 return "pre_cold"
             else:
                 return "scheduled"
@@ -719,9 +719,9 @@ class HiloChallengeSensor(HiloEntity, RestoreEntity, SensorEntity):
                 self.recovery_end = event.recovery_end
 
                 # Special attributes            
-                self.appreciation_start = event.preheat_start - timedelta(hours = self.hilo.appreciation)                
+                self.appreciation_start = event.preheat_start - timedelta(hours = self._hilo.appreciation)                
                 self.appreciation_end = self.preheat_start
-                self.precold_start: event.preheat_start - timedelta(hours = self.appreciation) - timedelta(hours = self.hilo.precold)                
+                self.precold_start: event.preheat_start - timedelta(hours = self._hilo.appreciation) - timedelta(hours = self._hilo.precold)                
                 self.precold_end = self.appreciation_start
             
             # to provide string for entity attributes
