@@ -632,12 +632,38 @@ class HiloChallengeSensor(HiloEntity, RestoreEntity, SensorEntity):
         self._next_events = []
         self._events_count = 0
         
-        self.scan_interval = timedelta(seconds=EVENT_SCAN_INTERVAL)        
-        self._last_poll = datetime.min   
-        self.async_update = self._async_update
+        self.scan_interval = timedelta(seconds=EVENT_SCAN_INTERVAL)                
+        self.async_update = Throttle(self.scan_interval)(self._async_update)
+
 
     @property
-    def state(self):
+    def state(self):        
+        
+        # LOG.debug("function state() begins")
+        
+        if self._events_count > 0:       
+            if datetime.now(timezone.utc) >= self.recovery_end: 
+                #le défi en cours est fini...
+                if self._events_count > 1:
+                    #... mais il y en a un autre après!
+                    self._state = "scheduled"
+                else:
+                    self._state = "off"
+            elif datetime.now(timezone.utc) >= self.recovery_start:
+                self._state = "recovery"
+            elif datetime.now(timezone.utc) >= self.reduction_start:
+                self._state = "reduction"
+            elif datetime.now(timezone.utc) >= self.preheat_start:
+                self._state = "pre_heat"
+            elif datetime.now(timezone.utc) >= self.appreciation_start:
+                self._state = "appreciation"
+            elif datetime.now(timezone.utc) >= self.precold_start:
+                self._state = "pre_cold"
+            else:
+                self._state = "scheduled"
+        else:
+            self._state = "off" 
+        
         return self._state
 
     @property
@@ -675,45 +701,12 @@ class HiloChallengeSensor(HiloEntity, RestoreEntity, SensorEntity):
         if last_state:
             self._last_update = dt_util.utcnow()
             self._state = last_state.state
-            self._next_events = last_state.attributes.get("next_events", [])
-            self._last_poll = datetime.min
+            self._next_events = last_state.attributes.get("next_events", [])            
 
-    async def _async_update(self):    
-    # This functions updates the state of the sensor at every scan (configured in hass, default to 30s)
-    # To prevent polling hilo too often, we will throttle ourselves based on EVENT_SCAN_INTERVAL (which has to be >3000s per Hilo's directive )
-
-        #Hilo polling THROTTLING happens here: 
-        if (datetime.now() > self._last_poll + self.scan_interval) : 
-            LOG.debug(f"It's been {self.scan_interval}. Let's poll last events info from Hilo")
-            await self._poll_data_from_hilo()
-            self._last_poll = datetime.now()
-        
-        # but we can update the recalculate/update the state as often as we like!        
-        LOG.debug("Let's recalculate the Challenge Sensor state")
-        if self._events_count > 0:       
-            if datetime.now(timezone.utc) >= self.recovery_end: 
-                #le défi en cours est fini...
-                if self._events_count > 1:
-                    #... mais il y en a un autre après!
-                    self._state = "scheduled"
-                else:
-                    self._state = "off"
-            elif datetime.now(timezone.utc) >= self.recovery_start:
-                self._state = "recovery"
-            elif datetime.now(timezone.utc) >= self.reduction_start:
-                self._state = "reduction"
-            elif datetime.now(timezone.utc) >= self.preheat_start:
-                self._state = "pre_heat"
-            elif datetime.now(timezone.utc) >= self.appreciation_start:
-                self._state = "appreciation"
-            elif datetime.now(timezone.utc) >= self.precold_start:
-                self._state = "pre_cold"
-            else:
-                self._state = "scheduled"
-        else:
-            self._state = "off" 
     
-    async def _poll_data_from_hilo(self):
+    async def _async_update(self):    
+    
+        # LOG.debug("function _async_update begins")
         
         events = await self._hilo._api.get_gd_events(self._hilo.devices.location_id)
         LOG.debug(f"Events received from Hilo: {events}")
