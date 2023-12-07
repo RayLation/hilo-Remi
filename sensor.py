@@ -681,8 +681,6 @@ class HiloChallengeSensor(HiloEntity, RestoreEntity, SensorEntity):
     async def _async_update(self):    
     # This functions updates the state of the sensor at every scan (configured in hass, default to 30s)
     # To prevent polling hilo too often, we will throttle ourselves based on EVENT_SCAN_INTERVAL (which has to be >3000s per Hilo's directive )
-    
-        
 
         #Hilo polling THROTTLING happens here: 
         if (datetime.now() > self._last_poll + self.scan_interval) : 
